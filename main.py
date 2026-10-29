@@ -11,7 +11,6 @@ import psycopg2
 import psycopg2.extras
 
 # PostgreSQL connection string (can be overridden via environment variable)
-# Update with your new password and database name:
 DATABASE_URL = "postgresql://postgres:my_new_password@localhost:5432/fast-api"
 
 
@@ -66,7 +65,12 @@ class Comment(BaseModel):
     created_at: datetime
 
 
+class PostWithComments(Post):
+    comments: List[Comment] = []
+
+
 def get_db_connection():
+    # RealDictCursor returns rows as dictionaries, allowing column name access
     conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     return conn
 
@@ -113,7 +117,6 @@ def serialize_post(row: dict) -> Post:
         try:
             tags = json.loads(tags_raw)
         except json.JSONDecodeError:
-            # Fallback for comma-separated text stored directly in DB
             tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
 
     return Post(
@@ -212,16 +215,33 @@ def create_post(post: PostCreate):
     return serialize_post(row)
 
 
-@app.get("/posts/{post_id}", response_model=Post)
+@app.get("/posts/{post_id}", response_model=PostWithComments)
 def get_post(post_id: int):
     conn = get_db_connection()
     cursor = conn.cursor()
+    
+    # 1. Fetch the post
     cursor.execute("SELECT * FROM posts WHERE id = %s", (post_id,))
     row = cursor.fetchone()
-    conn.close()
+    
     if not row:
+        conn.close()
         raise HTTPException(status_code=404, detail="Post not found")
-    return serialize_post(row)
+        
+    # 2. Fetch all comments for this post
+    cursor.execute("SELECT * FROM comments WHERE post_id = %s ORDER BY created_at DESC", (post_id,))
+    comment_rows = cursor.fetchall()
+    
+    conn.close()
+    
+    # 3. Serialize post base fields and attach comments
+    base_post = serialize_post(row)
+    comments = [serialize_comment(c) for c in comment_rows]
+    
+    return PostWithComments(
+        **base_post.dict(),
+        comments=comments
+    )
 
 
 @app.put("/posts/{post_id}", response_model=Post)
