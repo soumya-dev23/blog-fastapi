@@ -9,6 +9,10 @@ from typing import List, Optional
 import uvicorn
 import psycopg2
 import psycopg2.extras
+from dotenv import load_dotenv  
+
+# Load variables from the .env file into environment variables
+load_dotenv()
 
 # PostgreSQL connection string (can be overridden via environment variable)
 DATABASE_URL = "postgresql://postgres:my_new_password@localhost:5432/fast-api"
